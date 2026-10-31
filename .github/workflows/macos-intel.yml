@@ -28,6 +28,12 @@ jobs:
       - name: Install dependencies
         run: |
           brew install autoconf automake boost ffmpeg fmt glslang hidapi libtool libusb lz4 ninja nlohmann-json openssl@3 pkg-config qt@6 sdl3 speexdsp zlib zstd cmake molten-vk vulkan-loader spirv-tools
+    
+      - name: Fix macOS icon filename
+        run: |
+          if [ ! -f dist/eglantine.icns ]; then
+            cp dist/eden.icns dist/eglantine.icns
+          fi
 
       - name: Configure
         shell: bash
