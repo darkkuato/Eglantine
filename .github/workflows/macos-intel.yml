@@ -1,0 +1,111 @@
+name: macOS Intel
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 180
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Verify Intel runner
+        run: |
+          test "$(uname -m)" = x86_64
+          xcodebuild -version
+          sw_vers
+
+      - name: Install dependencies
+        run: |
+          brew install autoconf automake boost ffmpeg fmt glslang hidapi libtool libusb lz4 ninja nlohmann-json openssl@3 pkg-config qt@6 sdl3 speexdsp zlib zstd cmake molten-vk vulkan-loader spirv-tools
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt@6);$(brew --prefix);$(brew --prefix molten-vk)" \
+            -DENABLE_QT=ON \
+            -DYUZU_USE_BUNDLED_QT=OFF \
+            -DYUZU_USE_BUNDLED_MOLTENVK=OFF \
+            -DYUZU_USE_CPM=ON \
+            -DENABLE_WERROR=OFF \
+            -DYUZU_TESTS=OFF \
+            -DBUILD_TESTING=OFF \
+            -DYUZU_CMD=OFF \
+            -DYUZU_ROOM=OFF \
+            -DENABLE_WEB_SERVICE=OFF \
+            -DENABLE_UPDATE_CHECKER=OFF \
+            -DUSE_DISCORD_PRESENCE=OFF 2>&1 | tee configure.log
+
+      - name: Compile
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build --target yuzu --parallel 3 2>&1 | tee build.log
+
+      - name: Package application
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=$(find build/bin -maxdepth 2 -type d -name '*.app' -print -quit)
+          test -n "$app"
+          mkdir -p dist
+          ditto "$app" dist/Eglantine.app
+          app="$PWD/dist/Eglantine.app"
+          mkdir -p "$app/Contents/Frameworks"
+          molten=$(find "$(brew --prefix molten-vk)/lib" -name 'libMoltenVK.dylib' -print -quit)
+          test -n "$molten"
+          cp -L "$molten" "$app/Contents/Frameworks/libMoltenVK.dylib"
+          "$(brew --prefix qt@6)/bin/macdeployqt" "$app" -always-overwrite -verbose=2
+          python3 - "$app" <<'PY'
+          import pathlib, subprocess, sys
+          app = pathlib.Path(sys.argv[1])
+          for path in app.rglob('*'):
+              if not path.is_file() or path.is_symlink():
+                  continue
+              probe = subprocess.run(['file', '-b', str(path)], capture_output=True, text=True, check=True)
+              if 'Mach-O' not in probe.stdout:
+                  continue
+              subprocess.run(['lipo', '-verify_arch', 'x86_64', str(path)], check=True)
+              deps = subprocess.check_output(['otool', '-L', str(path)], text=True)
+              for line in deps.splitlines()[1:]:
+                  dep = line.strip().split(' (')[0]
+                  if dep.startswith('/') and not dep.startswith(('/usr/lib/', '/System/Library/')):
+                      raise SystemExit(f'Unbundled dependency in {path}: {dep}')
+          PY
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          ditto -c -k --sequesterRsrc --keepParent "$app" dist/Eglantine-macOS-Intel.zip
+
+      - name: Upload application
+        uses: actions/upload-artifact@v4
+        with:
+          name: Eglantine-macOS-Intel
+          path: dist/Eglantine-macOS-Intel.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-Intel-logs
+          path: |
+            configure.log
+            build.log
+            build/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: ignore
