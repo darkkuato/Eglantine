@@ -73,6 +73,7 @@ jobs:
           mkdir -p dist
           ditto "$app" dist/Eglantine.app
           app="$PWD/dist/Eglantine.app"
+          codesign --remove-signature "$app"
           mkdir -p "$app/Contents/Frameworks"
           molten=$(find "$(brew --prefix molten-vk)/lib" -name 'libMoltenVK.dylib' -print -quit)
           test -n "$molten"
@@ -90,7 +91,7 @@ jobs:
               probe = subprocess.run(['file', '-b', str(path)], capture_output=True, text=True, check=True)
               if 'Mach-O' not in probe.stdout:
                   continue
-              subprocess.run(['lipo', '-verify_arch', 'x86_64', str(path)], check=True)
+              subprocess.run(['lipo', str(path), '-verify_arch', 'x86_64'], check=True)
               deps = subprocess.check_output(['otool', '-L', str(path)], text=True)
               for line in deps.splitlines()[1:]:
                   dep = line.strip().split(' (')[0]
