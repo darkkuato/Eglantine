@@ -76,7 +76,10 @@ jobs:
           mkdir -p "$app/Contents/Frameworks"
           molten=$(find "$(brew --prefix molten-vk)/lib" -name 'libMoltenVK.dylib' -print -quit)
           test -n "$molten"
+          chmod u+w "$app/Contents/Frameworks"
+          rm -f "$app/Contents/Frameworks/libMoltenVK.dylib"
           cp -L "$molten" "$app/Contents/Frameworks/libMoltenVK.dylib"
+          chmod u+w "$app/Contents/Frameworks/libMoltenVK.dylib"
           "$(brew --prefix qt@6)/bin/macdeployqt" "$app" -always-overwrite -verbose=2
           python3 - "$app" <<'PY'
           import pathlib, subprocess, sys
